@@ -46,6 +46,94 @@ bool ScopedDisableResize::disable_resize_ = false;
 
 }  // namespace
 
+// Container for the titlebar buttons in frameless windows.
+@interface CustomWindowButtonView : NSView {
+  BOOL mouse_inside_;
+}
+
+@end
+
+@implementation CustomWindowButtonView
+
+- (id)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+
+  NSButton* closeButton = [NSWindow standardWindowButton:NSWindowCloseButton
+                                            forStyleMask:NSTitledWindowMask];
+  NSButton* miniaturizeButton =
+      [NSWindow standardWindowButton:NSWindowMiniaturizeButton
+                        forStyleMask:NSTitledWindowMask];
+  NSButton* zoomButton =
+      [NSWindow standardWindowButton:NSWindowZoomButton
+                        forStyleMask:NSTitledWindowMask];
+
+  CGFloat x = 0;
+  const CGFloat spaceBetween = 20;
+
+  [closeButton setFrameOrigin:NSMakePoint(x, 0)];
+  x += spaceBetween;
+  [self addSubview:closeButton];
+
+  [miniaturizeButton setFrameOrigin:NSMakePoint(x, 0)];
+  x += spaceBetween;
+  [self addSubview:miniaturizeButton];
+
+  [zoomButton setFrameOrigin:NSMakePoint(x, 0)];
+  x += spaceBetween;
+  [self addSubview:zoomButton];
+
+  const auto lastButtonFrame = zoomButton.frame;
+  [self setFrameSize:NSMakeSize(lastButtonFrame.origin.x + lastButtonFrame.size.width, lastButtonFrame.size.height)];
+
+  return self;
+}
+
+- (void)viewDidMoveToWindow {
+  if (!self.window) {
+    return;
+  }
+
+  // Stay in upper left corner.
+  [self setAutoresizingMask:NSViewMaxXMargin | NSViewMinYMargin];
+  [self setFrameOrigin:NSMakePoint(7, self.window.frame.size.height - self.frame.size.height - 3)];
+}
+
+- (BOOL)_mouseInGroup:(NSButton*)button {
+  return mouse_inside_;
+}
+
+- (void)updateTrackingAreas {
+  NSTrackingArea* const trackingArea = [[NSTrackingArea alloc]
+      initWithRect:NSZeroRect
+           options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways |
+                    NSTrackingInVisibleRect)
+             owner:self
+          userInfo:nil];
+  [self addTrackingArea:trackingArea];
+}
+
+- (void)mouseEntered:(NSEvent*)event {
+  [super mouseEntered:event];
+
+  mouse_inside_ = YES;
+  [self setNeedsDisplayForButtons];
+}
+
+- (void)mouseExited:(NSEvent*)event {
+  [super mouseExited:event];
+
+  mouse_inside_ = NO;
+  [self setNeedsDisplayForButtons];
+}
+
+- (void)setNeedsDisplayForButtons {
+  for (NSView* subview in self.subviews) {
+    [subview setNeedsDisplay:YES];
+  }
+}
+
+@end
+
 // This view always takes the size of its superview. It is intended to be used
 // as a NSWindow's contentView.  It is needed because NSWindow's implementation
 // explicitly resizes the contentView at inopportune times.
@@ -594,6 +682,32 @@ enum {
   NSURL* url = [[[NSURL alloc] initFileURLWithPath:path] autorelease];
   [self setQuickLookItem:[[[AtomPreviewItem alloc] initWithURL:url title:fileName] autorelease]];
   [[QLPreviewPanel sharedPreviewPanel] makeKeyAndOrderFront:nil];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem*)menuItem {
+  return ([menuItem action] == @selector(performClose:) ||
+          [menuItem action] == @selector(performMiniaturize:))
+             ? YES
+             : [super validateMenuItem:menuItem];
+}
+
+- (BOOL)windowShouldClose:(id)sender {
+  return YES;
+}
+
+- (void)performClose:(id)sender {
+  if ([[self delegate] respondsToSelector:@selector(windowShouldClose:)]) {
+    if (![[self delegate] windowShouldClose:self])
+      return;
+  } else if ([self respondsToSelector:@selector(windowShouldClose:)]) {
+    if (![self windowShouldClose:self])
+      return;
+  }
+  [self close];
+}
+
+- (void)performMiniaturize:(id)sender {
+  [self miniaturize:self];
 }
 
 @end
@@ -1530,11 +1644,6 @@ void NativeWindowMac::UpdateDraggableRegions(
   UpdateDraggableRegionViews(regions);
 }
 
-void NativeWindowMac::ShowWindowButton(NSWindowButton button) {
-  auto view = [window_ standardWindowButton:button];
-  [view.superview addSubview:view positioned:NSWindowAbove relativeTo:nil];
-}
-
 void NativeWindowMac::InstallView() {
   // Make sure the bottom corner is rounded for non-modal windows: http://crbug.com/396264.
   // But do not enable it on OS X 10.9 for transparent window, otherwise a
@@ -1560,23 +1669,12 @@ void NativeWindowMac::InstallView() {
     [view setFrame:[content_view_ bounds]];
     [content_view_ addSubview:view];
 
+    // add semaphore
+    NSView* buttons = [[CustomWindowButtonView alloc] initWithFrame:NSZeroRect];
+    [content_view_ addSubview:buttons];
+
     // The fullscreen button should always be hidden for frameless window.
     [[window_ standardWindowButton:NSWindowFullScreenButton] setHidden:YES];
-
-    if (title_bar_style_ != NORMAL) {
-      if (base::mac::IsOS10_9()) {
-        ShowWindowButton(NSWindowZoomButton);
-        ShowWindowButton(NSWindowMiniaturizeButton);
-        ShowWindowButton(NSWindowCloseButton);
-      }
-
-      return;
-    }
-
-    // Hide the window buttons.
-    [[window_ standardWindowButton:NSWindowZoomButton] setHidden:YES];
-    [[window_ standardWindowButton:NSWindowMiniaturizeButton] setHidden:YES];
-    [[window_ standardWindowButton:NSWindowCloseButton] setHidden:YES];
 
     // Some third-party macOS utilities check the zoom button's enabled state to
     // determine whether to show custom UI on hover, so we disable it here to
