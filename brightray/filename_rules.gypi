@@ -61,6 +61,7 @@
       'sources/': [
         ['exclude', '_gtk(_browsertest|_unittest)?\\.(h|cc)$'],
         ['exclude', '(^|/)gtk/'],
+        ['exclude', '(^|/)kde/'],
         ['exclude', '(^|/)gtk_[^/]*\\.(h|cc)$'],
         ['exclude', '(^|/)libgtk2ui/'],
         ['exclude', '(^|/)x/'],

@@ -302,6 +302,7 @@
       'atom/browser/ui/drag_util.h',
       'atom/browser/ui/file_dialog.h',
       'atom/browser/ui/file_dialog_gtk.cc',
+      'atom/browser/ui/file_dialog_kde.cc',
       'atom/browser/ui/file_dialog_mac.mm',
       'atom/browser/ui/file_dialog_win.cc',
       'atom/browser/ui/message_box.h',
